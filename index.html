@@ -38,7 +38,7 @@ function testPrefix(prefix) {
             try { document.body.removeChild(form); } catch(e) {}
             try { window.open('', wname).close(); } catch(e) {}
             resolve(elapsed);
-        }, 800);
+        }, 300);
     });
 }
 
@@ -58,7 +58,7 @@ async function main() {
                 var c = CHARS[i];
                 var time = await testPrefix(secretFast + c);
                 results.push({ c: c, time: time });
-                await sleep(50);
+                await sleep(10);
             }
             
             results.sort(function(a, b) { return a.time - b.time; });
