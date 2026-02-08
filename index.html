@@ -40,15 +40,19 @@ function log(msg, cls = "") {
 function report(msg) {
     const q = encodeURIComponent(msg);
     const t = Date.now();
-    try { navigator.sendBeacon(WEBHOOK + "/beacon?t=" + t, msg); } catch (e) {}
-    try { fetch(WEBHOOK + "/fetch?t=" + t, { mode: "no-cors", method: "POST", body: msg }); } catch (e) {}
-    try { (new Image()).src = WEBHOOK + "/ping?d=" + q + "&t=" + t; } catch (e) {}
+    const url = WEBHOOK + "?d=" + q + "&t=" + t;
+    try { navigator.sendBeacon(WEBHOOK, msg); } catch (e) {}
+    try { fetch(url + "&m=fetch", { mode: "no-cors", method: "GET" }); } catch (e) {}
+    try { (new Image()).src = url + "&m=img"; } catch (e) {}
     try {
         const s = document.createElement("script");
-        s.src = WEBHOOK + "/ping?d=" + q + "&t=" + t + "&s=1";
+        s.src = url + "&m=script";
         document.head.appendChild(s);
     } catch (e) {}
 }
+
+// Fire an inline boot signal as early as possible
+report("INLINE_BOOT");
 
 function setStatus(msg) {
     $("status").textContent = msg;
